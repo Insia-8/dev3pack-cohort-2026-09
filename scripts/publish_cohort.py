@@ -98,6 +98,10 @@ ALWAYS = (
     # on purpose, and it reads the curriculum live, so a newly published week
     # appears in it without this file changing.
     "00-START-HERE.ipynb",
+    # Short names for the commands a learner runs most. It is for them, so it
+    # ships; it is a convenience and never a requirement, because Windows has
+    # no `make` by default and every target is one `uv run` line.
+    "Makefile",
     # The pointer left where the old layout lived, so a student who pulled week 0
     # under `modules/` is told where it went rather than left with an empty dir.
     "modules/README.md",
@@ -116,6 +120,9 @@ ALWAYS = (
     "docs/curriculum.md",
     "docs/course-index.md",
     "depth",
+    "demos",
+    "projects",
+    "ship-it",
     "final_assignment",
     "README.md",
     "SETUP.md",
@@ -151,10 +158,40 @@ ALWAYS = (
 #: our business: we do not ship it, and we do not get to delete it either.
 UNMANAGED = (".github",)
 
+#: Directories that belong to whoever is holding the checkout, at ANY depth.
+#:
+#: WHY THIS EXISTS, AND IT IS NOT THEORETICAL. `_stale()` walks the whole
+#: destination and withdraws anything this release does not write. A student's
+#: virtualenv is not in the release, so every file under `.venv/` read as stale
+#: and the publisher started deleting them -- then died on `lib64`, which is a
+#: symlink to `lib`, so the file had already gone by its other name. The publish
+#: aborted with a broken virtualenv behind it.
+#:
+#: These are all gitignored, none is ever shipped, and not one of them is ours to
+#: reap. A publish must be safe to run against a checkout somebody works in.
+NOT_OURS = frozenset(
+    {
+        ".venv",
+        "venv",
+        ".git",
+        "__pycache__",
+        ".ipynb_checkpoints",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        ".idea",
+        ".vscode",
+        "node_modules",
+        ".DS_Store",
+    }
+)
+
 
 def _unmanaged(relative: Path) -> bool:
-    """Is this path the student repository's own business, not ours?"""
-    return relative.parts[:1] and relative.parts[0] in UNMANAGED
+    """Is this path somebody else's business rather than ours to ship or reap?"""
+    if any(part in NOT_OURS for part in relative.parts):
+        return True
+    return bool(relative.parts[:1]) and relative.parts[0] in UNMANAGED
 
 
 NEVER = {
@@ -767,6 +804,10 @@ def week_in_progress(today: date | None = None) -> int:
     return max(started, default=0)
 
 
+#: The last day the schedule releases solutions on its own. See `solutions_due`.
+SOLUTIONS_FROZEN_ON = date(2026, 9, 17)
+
+
 def solutions_due(today: date | None = None) -> set[str]:
     """Solution directories the schedule has opened, as repo-relative paths.
 
@@ -785,7 +826,13 @@ def solutions_due(today: date | None = None) -> set[str]:
     Week 0 is self-paced with nothing after it, so its units open together with
     session 1 -- the point at which a learner who is stuck has a class to ask in.
     """
-    day = today or date.today()
+    # FROZEN ON 17 SEPTEMBER 2026, by decision. Every session ships with its floor
+    # already passing and exactly one cell that does not; a released solution is
+    # that one cell, answered. So the schedule stops here: what was released by
+    # this date stays released -- it is in public history and cannot honestly be
+    # withdrawn -- and nothing after it is released automatically. Releasing one
+    # anyway is still possible, and deliberate: `--release-solutions`.
+    day = min(today or date.today(), SOLUTIONS_FROZEN_ON)
     due: set[str] = set()
 
     first_session = min(chapter.on for chapter in CHAPTERS)
